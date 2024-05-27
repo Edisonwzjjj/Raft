@@ -76,6 +76,45 @@ type Raft struct {
 	electionTimeout time.Duration
 }
 
+func (rf *Raft) becomeFollowerLocked(term int) {
+	if term < rf.currentTerm {
+		LOG(rf.me, rf.currentTerm, DError, "Can't become Follower, lower term")
+		return
+	}
+
+	LOG(rf.me, rf.currentTerm, DLog, "%s -> Follower, For T%d->T%d",
+		rf.role, rf.currentTerm, term)
+
+	rf.role = Follower
+	if rf.currentTerm > term {
+		rf.votedFor = -1
+	}
+	rf.currentTerm = term
+}
+
+func (rf *Raft) becomeCandidateLocked(term int) {
+	if rf.role == Leader {
+		LOG(rf.me, rf.currentTerm, DError, "Leader can't become Candidate")
+		return
+	}
+	LOG(rf.me, rf.currentTerm, DVote, "%s -> Candidate, For T%d->T%d",
+		rf.role, rf.currentTerm, rf.currentTerm+1)
+	rf.currentTerm++
+	rf.votedFor = rf.me
+	rf.role = Candidate
+}
+
+func (rf *Raft) becomeLeaderLocked(term int) {
+	if rf.role != Candidate {
+		LOG(rf.me, rf.currentTerm, DLeader,
+			"%s, Only candidate can become Leader", rf.role)
+		return
+	}
+	LOG(rf.me, rf.currentTerm, DLeader, "%s -> Leader, For T%d",
+		rf.role, rf.currentTerm)
+	rf.role = Leader
+}
+
 // GetState return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
@@ -168,7 +207,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // can't be reached, a lost request, or a lost reply.
 //
 // Call() is guaranteed to return (perhaps after a delay) *except* if the
-// handler function on the server side does not return.  Thus there
+// handler function on the server side does not return.  Thus, there
 // is no need to implement your own timeouts around Call().
 //
 // look at the comments in ../labrpc/labrpc.go for more details.
@@ -182,7 +221,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-// the service using Raft (e.g. a k/v server) wants to start
+// Start the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
 // agreement and return immediately. there is no guarantee that this
@@ -204,7 +243,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	return index, term, isLeader
 }
 
-// the tester doesn't halt goroutines created by Raft after each test,
+// Kill the tester doesn't halt goroutines created by Raft after each test,
 // but it does call the Kill() method. your code can use killed() to
 // check whether Kill() has been called. the use of atomic avoids the
 // need for a lock.
